@@ -129,7 +129,7 @@ void battery_layer_update_callback(Layer *me, GContext* ctx) {
   //draw the remaining battery percentage
   graphics_context_set_stroke_color(ctx, GColorBlack);
   graphics_context_set_fill_color(ctx, GColorBlack);
-  graphics_fill_rect(ctx, GRect(0, 1, ((batteryPercent/100.0)*15.0), 11), 0, GCornerNone);
+  graphics_fill_rect(ctx, GRect(0, 1, ((batteryPercent/100.0)*16.0), 9), 0, GCornerNone);
 }
 
 void handle_bluetooth(bool connected) {
@@ -236,7 +236,7 @@ static void window_load(Window *window) {
 	
   battery100_image = gbitmap_create_with_resource(RESOURCE_ID_IMAGE_100BATTERY);
   GRect framea = (GRect) {
-    .origin = { .x = 110, .y = 26 },
+    .origin = { .x = 111, .y = 28 },
     .size = battery100_image->bounds.size
   };
   battery100_image_layer = bitmap_layer_create(framea);
