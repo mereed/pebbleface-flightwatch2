@@ -1,12 +1,12 @@
 {
     "appKeys": {
-        "dummy": 0
+        "timezoneOffset": 0
     },
     "capabilities": [
         ""
     ],
     "companyName": "mereed",
-    "longName": "flight watch 2",
+    "longName": "flight watch 3",
     "projectType": "native",
     "resources": {
         "media": [
@@ -123,7 +123,7 @@
             }
         ]
     },
-    "shortName": "flight2",
+    "shortName": "flight",
     "uuid": "42001185-da78-479c-a3af-e2eeab597ab4",
     "versionCode": 1,
     "versionLabel": "1.0",

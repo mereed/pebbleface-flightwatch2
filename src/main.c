@@ -3,6 +3,12 @@
 #define STR_SIZE 20
 #define TIME_OFFSET_PERSIST 1
 
+#define KEY_TIMEZONE_OFFSET 0
+	
+enum appKey {
+  TIME_KEY = 0x0,
+};
+
 static bool appStarted = false;
 
 static Window *window;
@@ -37,7 +43,8 @@ static BitmapLayer *background_layer;
 
 char *s;
 // Local time is wall time, not UTC, so an offset is used to get UTC
-int time_offset;
+int timezone_offset;
+time_t utc;
 
 #define TOTAL_BATTERY_PERCENT_DIGITS 3
 static GBitmap *battery_percent_image[TOTAL_BATTERY_PERCENT_DIGITS];
@@ -57,23 +64,26 @@ const int TINY_IMAGE_RESOURCE_IDS[] = {
   RESOURCE_ID_IMAGE_TINY_PERCENT
 };
 
+static struct tm zulu_tick_time;
+
 InverterLayer *inverter_layer = NULL;
 
 static void display_utc() {
 	
-	static char utc_time_text[] = "00:00:00";
+	static char utc_time_text[] = "00:00:00"; 
     static char utc_date_text[] = "0000-00-00";
-	
-	time_t utc = time(NULL) + time_offset;
-    struct tm *zulu_time = localtime(&utc);
-	
-    strftime(utc_time_text, sizeof(utc_time_text), "%R:%S", zulu_time);
+
+	utc = time(NULL) + timezone_offset;
+	zulu_tick_time = *localtime(&utc);
+
+    strftime(utc_time_text, sizeof(utc_time_text), "%R:%S", &zulu_tick_time);
 	text_layer_set_text(utc_time_text_layer, utc_time_text);
 	
-    strftime(utc_date_text, sizeof(utc_date_text), "%F", zulu_time);
+    strftime(utc_date_text, sizeof(utc_date_text), "%F", &zulu_tick_time);
     text_layer_set_text(utc_date_text_layer, utc_date_text);
 	
 }	
+
 	
 void change_battery_icon(bool charging) {
   gbitmap_destroy(battery_image);
@@ -119,17 +129,17 @@ static void update_battery(BatteryChargeState charge_state) {
   for (int i = 0; i < TOTAL_BATTERY_PERCENT_DIGITS; ++i) {
     layer_set_hidden(bitmap_layer_get_layer(battery_percent_layers[i]), false);
   }  
-  set_container_image(&battery_percent_image[0], battery_percent_layers[0], TINY_IMAGE_RESOURCE_IDS[charge_state.charge_percent/10], GPoint(110, 30));
-  set_container_image(&battery_percent_image[1], battery_percent_layers[1], TINY_IMAGE_RESOURCE_IDS[charge_state.charge_percent%10], GPoint(117, 30)); 
-  set_container_image(&battery_percent_image[2], battery_percent_layers[2], TINY_IMAGE_RESOURCE_IDS[10], GPoint(125, 30));
+  set_container_image(&battery_percent_image[0], battery_percent_layers[0], TINY_IMAGE_RESOURCE_IDS[charge_state.charge_percent/10], GPoint(112, 123));
+  set_container_image(&battery_percent_image[1], battery_percent_layers[1], TINY_IMAGE_RESOURCE_IDS[charge_state.charge_percent%10], GPoint(119, 123)); 
+  set_container_image(&battery_percent_image[2], battery_percent_layers[2], TINY_IMAGE_RESOURCE_IDS[10], GPoint(127, 123));
 
 }    
 
 void battery_layer_update_callback(Layer *me, GContext* ctx) {        
   //draw the remaining battery percentage
-  graphics_context_set_stroke_color(ctx, GColorBlack);
-  graphics_context_set_fill_color(ctx, GColorBlack);
-  graphics_fill_rect(ctx, GRect(0, 1, ((batteryPercent/100.0)*16.0), 9), 0, GCornerNone);
+  graphics_context_set_stroke_color(ctx, GColorWhite);
+  graphics_context_set_fill_color(ctx, GColorWhite);
+  graphics_fill_rect(ctx, GRect(0, 3, ((batteryPercent/100.0)*136.0), 2), 0, GCornerNone);
 }
 
 void handle_bluetooth(bool connected) {
@@ -142,38 +152,40 @@ void handle_bluetooth(bool connected) {
 }
 	
 static void handle_second_tick(struct tm *tick_time, TimeUnits units_changed) {
-  static char time_text2[] = "00:00p";
+  static char time_text2[] = "00:00:00";
   static char date_text[] = "xxx xxx 00";
 
   strftime(date_text, sizeof(date_text), "%a %b %d", tick_time);
   text_layer_set_text(date_text_layer, date_text);
   
-  
-  if (clock_is_24h_style()) {
-    strftime(time_text2, sizeof(time_text2), "%R", tick_time);
-  } else {
-    strftime(time_text2, sizeof(time_text2), "%l:%M%P", tick_time);
-  }
-	
-  if (!clock_is_24h_style() && (time_text2[0] == '0')) {
-    memmove(time_text2, &time_text2[1], sizeof(time_text2) - 1);
-  }
+  strftime(time_text2, sizeof(time_text2), "%R:%S", tick_time);
 
   text_layer_set_text(time_text_layer2, time_text2);
   display_utc();
 	
 }
 
-// Get the time from the phone, which is UTC
+// Get the time from the phone, which is probably UTC
 // Calculate and store the offset when compared to the local clock
-static void app_message_inbox_received(DictionaryIterator *iterator, void *context) {
-  Tuple *t = dict_find(iterator, 0);
-  int unixtime = t->value->int32;
-  int now = (int)time(NULL);
-  time_offset = unixtime - now;
+static void appmsg_in_received(DictionaryIterator *received, void *context) {
+
+  Tuple *timezone_offset_tuple = dict_find(received, KEY_TIMEZONE_OFFSET);
+
+  if (timezone_offset_tuple) {
+    int32_t timezone_offset = timezone_offset_tuple->value->int32;
+
+    // Calculate UTC time
+    time_t local;
+    time(&local);
+    utc = local + timezone_offset;
+  }
+
   display_utc();
 
 }
+
+
+
 
 static void window_load(Window *window) {
   window_set_background_color(window, GColorBlack);
@@ -193,10 +205,10 @@ static void window_load(Window *window) {
 	day_font = fonts_load_custom_font(resource_get_handle(RESOURCE_ID_FONT_ORATOR_18));
 	date1_font = fonts_load_custom_font(resource_get_handle(RESOURCE_ID_FONT_ORATOR_18));
 	
-	layer_conn_img  = bitmap_layer_create(GRect(116, 57, 20, 20));
+	layer_conn_img  = bitmap_layer_create(GRect(115, 56, 20, 20));
 	layer_add_child(window_layer, bitmap_layer_get_layer(layer_conn_img));
 
-  time_text_layer2 = text_layer_create(GRect( 12, 24, 108, 40));
+  time_text_layer2 = text_layer_create(GRect( 12, 21, 150, 40));
   text_layer_set_background_color(time_text_layer2, GColorClear);
   text_layer_set_text_color(time_text_layer2, GColorBlack);
   text_layer_set_font(time_text_layer2, time1_font);
@@ -204,7 +216,7 @@ static void window_load(Window *window) {
   text_layer_set_text_alignment(time_text_layer2, GTextAlignmentLeft);
   layer_add_child(window_layer, text_layer_get_layer(time_text_layer2)); 
 	
-  utc_time_text_layer = text_layer_create(GRect( 12, 88, 150, 40));
+  utc_time_text_layer = text_layer_create(GRect( 12, 83, 150, 40));
   text_layer_set_background_color(utc_time_text_layer, GColorClear);
   text_layer_set_text_color(utc_time_text_layer, GColorBlack);
   text_layer_set_font(utc_time_text_layer, time1_font);
@@ -212,7 +224,7 @@ static void window_load(Window *window) {
   text_layer_set_text_alignment(utc_time_text_layer, GTextAlignmentLeft);
   layer_add_child(window_layer, text_layer_get_layer(utc_time_text_layer));
 
-  date_text_layer = text_layer_create(GRect(14, 53, 144, 168-128));
+  date_text_layer = text_layer_create(GRect(14, 50, 144, 168-128));
   text_layer_set_background_color(date_text_layer, GColorClear);
   text_layer_set_text_color(date_text_layer, GColorBlack);
   text_layer_set_font(date_text_layer, day_font);
@@ -220,7 +232,7 @@ static void window_load(Window *window) {
   text_layer_set_text_alignment(date_text_layer, GTextAlignmentLeft);
   layer_add_child(window_layer, text_layer_get_layer(date_text_layer));
   
-  utc_date_text_layer = text_layer_create(GRect(14, 117, 144, 168-128));
+  utc_date_text_layer = text_layer_create(GRect(14, 112, 144, 168-128));
   text_layer_set_background_color(utc_date_text_layer, GColorClear);
   text_layer_set_text_color(utc_date_text_layer, GColorBlack);
   text_layer_set_font(utc_date_text_layer, date1_font);
@@ -236,7 +248,7 @@ static void window_load(Window *window) {
 	
   battery100_image = gbitmap_create_with_resource(RESOURCE_ID_IMAGE_100BATTERY);
   GRect framea = (GRect) {
-    .origin = { .x = 111, .y = 28 },
+    .origin = { .x = 112, .y = 123 },
     .size = battery100_image->bounds.size
   };
   battery100_image_layer = bitmap_layer_create(framea);
@@ -245,7 +257,7 @@ static void window_load(Window *window) {
 
  battery_image = gbitmap_create_with_resource(RESOURCE_ID_IMAGE_BATTERY);
   GRect frameb = (GRect) {
-    .origin = { .x = 112, .y = 44 },
+    .origin = { .x = 4, .y = 140},
     .size = battery_image->bounds.size
   };
   battery_layer = bitmap_layer_create(frameb);
@@ -284,16 +296,17 @@ static void init(void) {
   window_stack_push(window, animated);
 
   // Load the UTC offset, if it exists
-  time_offset = 0;
+  timezone_offset =0;
   if (persist_exists(TIME_OFFSET_PERSIST)) {
-    APP_LOG(APP_LOG_LEVEL_DEBUG, "loaded offset");
-    time_offset = persist_read_int(TIME_OFFSET_PERSIST);
+   // APP_LOG(APP_LOG_LEVEL_DEBUG, "loaded offset");
+    timezone_offset = persist_read_int(TIME_OFFSET_PERSIST);
   }
 
   s = malloc(STR_SIZE);
   tick_timer_service_subscribe(SECOND_UNIT, handle_second_tick);
-  app_message_register_inbox_received(app_message_inbox_received);
+  app_message_register_inbox_received(appmsg_in_received);
   app_message_open(30, 0);
+
 	
   bluetooth_connection_service_subscribe(&handle_bluetooth);
   battery_state_service_subscribe(&update_battery);
