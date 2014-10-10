@@ -83,7 +83,6 @@ static void display_utc() {
     text_layer_set_text(utc_date_text_layer, utc_date_text);
 	
 }	
-
 	
 void change_battery_icon(bool charging) {
   gbitmap_destroy(battery_image);
@@ -183,9 +182,6 @@ static void appmsg_in_received(DictionaryIterator *received, void *context) {
   display_utc();
 
 }
-
-
-
 
 static void window_load(Window *window) {
   window_set_background_color(window, GColorBlack);
