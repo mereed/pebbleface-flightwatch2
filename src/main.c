@@ -3,12 +3,6 @@
 #define STR_SIZE 20
 #define TIME_OFFSET_PERSIST 1
 
-#define KEY_TIMEZONE_OFFSET 0
-	
-enum appKey {
-  TIME_KEY = 0x0,
-};
-
 static bool appStarted = false;
 
 static Window *window;
@@ -43,8 +37,7 @@ static BitmapLayer *background_layer;
 
 char *s;
 // Local time is wall time, not UTC, so an offset is used to get UTC
-int timezone_offset;
-time_t utc;
+int32_t time_offset;
 
 #define TOTAL_BATTERY_PERCENT_DIGITS 3
 static GBitmap *battery_percent_image[TOTAL_BATTERY_PERCENT_DIGITS];
@@ -64,25 +57,10 @@ const int TINY_IMAGE_RESOURCE_IDS[] = {
   RESOURCE_ID_IMAGE_TINY_PERCENT
 };
 
-static struct tm zulu_tick_time;
 
 InverterLayer *inverter_layer = NULL;
 
-static void display_utc() {
-	
-	static char utc_time_text[] = "00:00:00"; 
-    static char utc_date_text[] = "0000-00-00";
 
-	utc = time(NULL) + timezone_offset;
-	zulu_tick_time = *localtime(&utc);
-
-    strftime(utc_time_text, sizeof(utc_time_text), "%R:%S", &zulu_tick_time);
-	text_layer_set_text(utc_time_text_layer, utc_time_text);
-	
-    strftime(utc_date_text, sizeof(utc_date_text), "%F", &zulu_tick_time);
-    text_layer_set_text(utc_date_text_layer, utc_date_text);
-	
-}	
 	
 void change_battery_icon(bool charging) {
   gbitmap_destroy(battery_image);
@@ -150,6 +128,22 @@ void handle_bluetooth(bool connected) {
     }
 }
 	
+static void display_utc() {
+	
+	static char utc_time_text[] = "00:00:00"; 
+    static char utc_date_text[] = "0000-00-00";
+	
+	time_t utc = time(NULL) + time_offset;
+	struct tm *zulu_time = localtime(&utc);
+
+    strftime(utc_time_text, sizeof(utc_time_text), "%R:%S", zulu_time);
+	text_layer_set_text(utc_time_text_layer, utc_time_text);
+	
+    strftime(utc_date_text, sizeof(utc_date_text), "%F", zulu_time);
+    text_layer_set_text(utc_date_text_layer, utc_date_text);
+	
+}	
+
 static void handle_second_tick(struct tm *tick_time, TimeUnits units_changed) {
   static char time_text2[] = "00:00:00";
   static char date_text[] = "xxx xxx 00";
@@ -166,21 +160,12 @@ static void handle_second_tick(struct tm *tick_time, TimeUnits units_changed) {
 
 // Get the time from the phone, which is probably UTC
 // Calculate and store the offset when compared to the local clock
-static void appmsg_in_received(DictionaryIterator *received, void *context) {
-
-  Tuple *timezone_offset_tuple = dict_find(received, KEY_TIMEZONE_OFFSET);
-
-  if (timezone_offset_tuple) {
-    int32_t timezone_offset = timezone_offset_tuple->value->int32;
-
-    // Calculate UTC time
-    time_t local;
-    time(&local);
-    utc = local + timezone_offset;
-  }
-
+static void app_message_inbox_received(DictionaryIterator *received , void *context) {
+ Tuple *timezone_offset_tuple  = dict_find(received , 0);
+  int unixtime = timezone_offset_tuple ->value->int32;
+  int now = (int)time(NULL) + time_offset;
+  time_offset = unixtime - now;
   display_utc();
-
 }
 
 static void window_load(Window *window) {
@@ -292,21 +277,19 @@ static void init(void) {
   window_stack_push(window, animated);
 
   // Load the UTC offset, if it exists
-  timezone_offset =0;
+  time_offset =0;
   if (persist_exists(TIME_OFFSET_PERSIST)) {
    // APP_LOG(APP_LOG_LEVEL_DEBUG, "loaded offset");
-    timezone_offset = persist_read_int(TIME_OFFSET_PERSIST);
+    time_offset = persist_read_int(TIME_OFFSET_PERSIST);
   }
 
   s = malloc(STR_SIZE);
   tick_timer_service_subscribe(SECOND_UNIT, handle_second_tick);
-  app_message_register_inbox_received(appmsg_in_received);
+  app_message_register_inbox_received(app_message_inbox_received);
   app_message_open(30, 0);
-
 	
   bluetooth_connection_service_subscribe(&handle_bluetooth);
   battery_state_service_subscribe(&update_battery);
-
 	
 }
 
